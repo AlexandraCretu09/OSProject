@@ -1,5 +1,7 @@
 #define _DEFAULT_SOURCE
 #define st_mtime st_mtim.tv_sec
+#define MAX_BUFFER_SIZE 1024
+#define MAX_COMMAND_SIZE 1024
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -11,21 +13,28 @@
 #include <sys/stat.h>
 #include <time.h>
 #include <dirent.h>
+#include <stdbool.h>
+#include <sys/wait.h>
 
 int associateName(char s[]);
 void checkRights(struct stat var);
-void createSymLink(char *d, struct stat var);
+void createSymLink(char *d, int fd[]);
+bool checkCFile(char *d);
+void checkErrors(char *d);
+int countLines(FILE *f);
 
 void forFile(char* d, struct stat var){
     char s[50];
-    pid_t pid;
+    int fd[2];
+    pid_t pid,pid2;
+    int status;
+
 
     FILE *f=fopen(d,"r");
     if(f==NULL){
         perror("File couldn't be opened\n");
     }
     
-
     printf("\nRegular file options:\n name (-n),\n size (-d),\n hard link count (-h),\n time of last modification (-m),\n access rights (-a)\n create symbolic link (-l)\n\n");
     fgets(s,50,stdin);
     char *p = malloc(sizeof(p));
@@ -57,7 +66,8 @@ void forFile(char* d, struct stat var){
                     printf("Last modified time: %s", ctime(&var.st_mtime));
                     break;
                 case 7:
-                    createSymLink(d, var);
+                    
+                    createSymLink(d, fd);
                     break;
                 default:
                     perror("Operation not correct!\n");
@@ -65,6 +75,23 @@ void forFile(char* d, struct stat var){
             }
             exit(0);
         }
+        else{
+            wait(&status);
+
+            pid2 = fork();
+            if(pid2==0){
+                if(checkCFile(d)){
+                    checkErrors(d);
+                }
+                else{
+                    printf("The no. of lines in the %s file: %d.\n", d, countLines(f));
+                }
+                exit(0);
+            } else{
+                wait(&status);
+            }
+        }
+
         p=strtok(NULL," ");
     }
     fclose(f);      
@@ -110,11 +137,13 @@ void checkRights(struct stat var){
         (var.st_mode & S_IXOTH) ? "yes" : "no");
 }
 
-void createSymLink(char *d, struct stat var){
-    char name[50];    
+void createSymLink(char *d, int fd[]){
+
+    
+    char name[100];
     printf("Input name of the symbolic link:\n");
     fgets(name,50,stdin);
-    
+
     if(!symlink(d, name)){
         printf("Symbolic link created successfully\n");
     }
@@ -122,6 +151,60 @@ void createSymLink(char *d, struct stat var){
         perror("Couldn't create symbolic link\n");
         exit(0);
     }
+}
+
+bool checkCFile(char *d){
+    char *extension = strrchr(d,'.');
+    if(extension && !strcmp(extension,".c")){
+            return true;
+        }
+    return false;
+}
+
+void checkErrors(char *d){
+    
+    char buffer[MAX_BUFFER_SIZE];
+    char command[MAX_COMMAND_SIZE];
+    sprintf(command,"./script.sh %s", d);
+
+    FILE* pipe= popen(command,"r");
+    if(!pipe){
+        perror("Couldn't open the pipe for script.sh");
+        exit(0);
+    }
+    
+    printf("\n");
+    int ok = 1;
+    int warnings = 0, errors = 0;
+    while(fgets(buffer, MAX_BUFFER_SIZE, pipe)){
+        for(int i=0;i<strlen(buffer);i++){
+            if(isdigit(buffer[i])){
+                if(ok == 1){
+                    warnings = warnings * 10 + buffer[i]-'0';
+                }
+                else{
+                    errors = errors * 10 + buffer[i]-'0';
+                }
+            }
+        }
+        ok = 0;
+    }
+    printf("warnings: %d and errors: %d\n",warnings, errors);
+    pclose(pipe);
+}
+
+int countLines(FILE *f){
+    int count=1;
+    if(!f){
+        perror("File not open");
+        exit(0);
+    }
+    char ch;
+    while((ch = fgetc(f))!=EOF){
+        if(ch == '\n')
+            count++;
+    }
+    return count;
 }
 
 
@@ -133,6 +216,7 @@ int checkCFiles(DIR *dir);
 void forDirectories(char *d, struct stat var){
 
     char s[50];
+    int status;
 
     DIR *dir;
     dir = opendir(d);
@@ -141,9 +225,12 @@ void forDirectories(char *d, struct stat var){
         exit(0);
     }
 
+
+    
     printf("\nDirectory options:\n name (-n),\n size (-d),\n access rights (-a),\n total number of files with the .c extension (-c)\n\n");
     fgets(s,50,stdin);
     char *p;
+    pid_t pid2;
 
     p = strtok(s," ");
 
@@ -179,6 +266,31 @@ void forDirectories(char *d, struct stat var){
             }
             exit(0);
         }
+        else{
+            wait(&status);
+            pid2 = fork();
+            if(pid2<0){
+                perror("Couldn't fork second process\n");
+                exit(0);
+            }
+            else if(pid2 == 0){
+                char fileName[50];
+                strcpy(fileName, d);
+                strcat(fileName,"_file.txt");
+
+                FILE *f = fopen(fileName,"w");
+                
+                if(!f){
+                    perror("Couldn't create the file.\n");
+                    exit(0);
+                }
+                else{
+                    printf("File %s created successfully\n", fileName);
+                }
+
+            }
+
+        }
         p=strtok(NULL," ");
     }
     closedir(dir);
@@ -206,14 +318,15 @@ void getTargetStatus(char *linkName, struct stat var);
 void forSymLink(char *link, struct stat var){
 
     char s[50];
+    int status;
 
     printf("Options for symbolic link:\n name (-n),\n delete symbolic link (-l),\n size of symbolic link (-d),\n size of target file (-t),\n access rights (-a)\n\n");
     fgets(s,50,stdin);
     char *p;
 
     p = strtok(s," ");
-
-    while(p!=NULL){
+    int ok=1;
+    while(p!=NULL && ok==1){
 
         int j = associateName(p);
     
@@ -241,6 +354,8 @@ void forSymLink(char *link, struct stat var){
                     }
                     else{
                         printf("Unlinked successfully.\n");
+                        ok = 0;
+                        exit(0);
                     }
                     break;
                 case 8:
@@ -250,6 +365,8 @@ void forSymLink(char *link, struct stat var){
                     perror("Operation not correct!\n");
             }
             exit(0);
+        } else{
+            wait(&status);
         }
         p=strtok(NULL," ");
     }
@@ -280,12 +397,15 @@ int main(int argc, char** argv){
         }
         
         if(S_ISREG(var.st_mode)){
+            printf("For the regular file: %s\n", argv[i]);
             forFile(argv[i], var);
         }
         if(S_ISDIR(var.st_mode)){
+            printf("For the directory: %s\n", argv[i]);
             forDirectories(argv[i], var);
         }
         if(S_ISLNK(var.st_mode)){
+            printf("For the symbolic link: %s\n", argv[i]);
             forSymLink(argv[i],var);
         }
     }
