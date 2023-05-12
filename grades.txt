@@ -1,0 +1,5 @@
+File test.c has the score: 2
+File Source.c has the score: 10
+File test.c has the score: 2
+File test.c has the score: 2
+File test.c has the score: 2

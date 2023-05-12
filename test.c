@@ -1,6 +1,7 @@
-#include <std.h>
+#include <stdio.h>
 
 int main(){
-    printf("Yes\n")
-    retur
+    int x,y,z,a,b,c,d,e,f,g,h,i,j;
+    printf("Yes\n");
+    return 0;
 }

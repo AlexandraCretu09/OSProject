@@ -16,12 +16,18 @@
 #include <stdbool.h>
 #include <sys/wait.h>
 
+struct errAndWar{
+    int errors, warnings;
+};
+
+
 int associateName(char s[]);
 void checkRights(struct stat var);
 void createSymLink(char *d, int fd[]);
 bool checkCFile(char *d);
-void checkErrors(char *d);
-int countLines(FILE *f);
+void checkErrors(char *d, int fd[]);
+void countLines(FILE *f, char *d);
+int computeScore(struct errAndWar Data);
 
 void forFile(char* d, struct stat var){
     char s[50];
@@ -34,39 +40,49 @@ void forFile(char* d, struct stat var){
     if(f==NULL){
         perror("File couldn't be opened\n");
     }
+    bool check = false, k = true;
+    while(!check){
+        k = true;
+        printf("\nRegular file options:\n name (-n),\n size (-d),\n hard link count (-h),\n time of last modification (-m),\n access rights (-a)\n create symbolic link (-l)\n\n");
+        fgets(s,50,stdin);
+        if(s[0]=='-'){
+            for(int i=1;i<strlen(s)-1;i++){
+                if(strchr("ndhaml",s[i])==NULL)
+                    k = false;
+            if(k)
+                check = true;
+            }
+        }
+        if(!check || s[0]!='-'){
+            printf("\nCommand not correct! Enter again:\n");
+        }
+    }
     
-    printf("\nRegular file options:\n name (-n),\n size (-d),\n hard link count (-h),\n time of last modification (-m),\n access rights (-a)\n create symbolic link (-l)\n\n");
-    fgets(s,50,stdin);
-    char *p = malloc(sizeof(p));
-    
-    p = strtok(s," ");
-    while(p!=NULL){
-        int j = associateName(p);
-
+    for(int i=1;i<strlen(s)-1;i++){
         pid = fork();
         if(pid<0){
             fprintf(stderr, "Failed to fork a new process\n.");
             exit(0);
-        }
-        else if(pid==0){
-            switch(j){
-                case 1:
+
+        } else if(pid==0){
+
+            switch(s[i]){
+                case 'n':
                     printf("File name: %s\n",d);
                     break;
-                case 2:
+                case 'd':
                     printf("The file %s is %ld bytes long\n", d, (long)var.st_size);
                     break;
-                case 3:
+                case 'h':
                     printf("The file %s has %ld hard links\n", d, (long)var.st_nlink);
                     break;
-                case 4:
+                case 'a':
                     checkRights(var);
                     break;
-                case 5:
-                    printf("Last modified time: %s", ctime(&var.st_mtime));
+                case 'm':
+                    printf("Last modified time: %s\n", ctime(&var.st_mtime));
                     break;
-                case 7:
-                    
+                case 'l':
                     createSymLink(d, fd);
                     break;
                 default:
@@ -74,67 +90,104 @@ void forFile(char* d, struct stat var){
 
             }
             exit(0);
-        }
-        else{
-            wait(&status);
+            
+        }else{
+            if(i==strlen(s)-2){
+                    
+                for (int i = 0; i < strlen(s)-2; i++) {
+                    pid_t child_pid = waitpid(-1, &status, 0);
 
-            pid2 = fork();
-            if(pid2==0){
-                if(checkCFile(d)){
-                    checkErrors(d);
+                    if (WIFEXITED(status)) {
+                        int exit_code = WEXITSTATUS(status);
+                        printf("\nThe process with PID %d has ended with the exit code %d\n", child_pid, exit_code);
+                    } else {
+                        printf("\nThe process with PID %d has ended abnormally\n", child_pid);
+                    }
                 }
-                else{
-                    printf("The no. of lines in the %s file: %d.\n", d, countLines(f));
+                int fd[2];
+                if(pipe(fd) == -1){
+                    perror("Couldn't create pipe\n");
+                    exit(0);
                 }
-                exit(0);
-            } else{
-                wait(&status);
+                pid2 = fork();
+
+                if(pid2==0){
+                    if(checkCFile(d)){
+                        checkErrors(d,fd);
+                    }
+                    else{
+                        //printf("\nThe no. of lines in the %s file: %d.\n", d, countLines(f));
+                        fclose(f);
+                        countLines(f,d);
+                            
+                    }
+                    exit(0);
+                } else{
+                        
+                    if(checkCFile(d)){
+                        close(fd[1]);
+                        struct errAndWar Data;
+                        int len = read(fd[0], &Data, sizeof(Data));
+                        if(len!=sizeof(Data)){
+                            perror("Couldn't read from pipe\n");
+                            exit(0);
+                        }
+                        else{
+
+                            //printf("Err: %d and war: %d\n", Data.errors, Data.warnings);
+                            int score = computeScore(Data);
+                            FILE *ff = fopen("grades.txt","a+");
+                            if(!ff){
+                                perror("Couldn't open the grades.txt file\n");
+                                exit(0);
+                            }
+                            else{
+                                printf("Score was successfully written in the grades.txt file\n");
+                            }
+                            
+
+                            fprintf(ff,"File %s has the score: %d\n",d,score);
+
+
+                        }
+                        close(fd[0]);
+                        
+                    }
+                    wait(&status);
+                    if (WIFEXITED(status)) {
+                        int exit_code = WEXITSTATUS(status);
+                        printf("\nThe process with PID %d has ended with the exit code %d\n", pid2, exit_code);
+                    } else {
+                        printf("\nThe process with PID %d has ended abnormally\n", pid2);
+                    }
+                        
+                }
             }
+                
         }
-
-        p=strtok(NULL," ");
     }
-    fclose(f);      
-}
-
-int associateName(char *s){
-    int j;
-    if(strncmp("-n",s,2)==0)
-            j = 1;
-            else if(strncmp("-d",s,2)==0)
-                j = 2;
-                else if(strncmp("-h",s,2)==0)
-                    j = 3;
-                    else if(strncmp("-a",s,2)==0)
-                        j = 4;
-                        else if(strncmp("-m",s,2)==0)
-                            j = 5;
-                            else if(strncmp("-c",s,2)==0)
-                                j = 6;
-                                else if(strncmp("-l",s,2)==0)
-                                    j = 7;
-                                    else if(strncmp("-t",s,2)==0)
-                                        j = 8;
-                                        else
-                                            j = -1;
-    return j;
+    fclose(f); 
 }
 
 
+
+   
 
 void checkRights(struct stat var){
-    printf("Owner:\n    Read: %s\n    Write: %s\n    Exec: %s\n", 
-        (var.st_mode & S_IRUSR) ? "yes" : "no",
-        (var.st_mode & S_IWUSR) ? "yes" : "no",
-        (var.st_mode & S_IXUSR) ? "yes" : "no");
-    printf("Group: \n    Read: %s\n    Write: %s\n    Exec: %s\n", 
-        (var.st_mode & S_IRGRP) ? "yes" : "no",
-        (var.st_mode & S_IWGRP) ? "yes" : "no",
-        (var.st_mode & S_IXGRP) ? "yes" : "no");
-    printf("Others: \n    Read: %s\n    Write: %s\n    Exec: %s\n", 
-        (var.st_mode & S_IROTH) ? "yes" : "no",
-        (var.st_mode & S_IWOTH) ? "yes" : "no",
-        (var.st_mode & S_IXOTH) ? "yes" : "no");
+    printf("Owner:\n\nRead: %s\nWrite: %s\nExec: %s\n\n", 
+    ((var.st_mode & S_IRUSR) ? "yes" : "no"),
+    ((var.st_mode & S_IWUSR) ? "yes" : "no"),
+    ((var.st_mode & S_IXUSR) ? "yes" : "no"));
+
+    printf("Group:\n\nRead: %s\nWrite: %s\nExec: %s\n\n", 
+    ((var.st_mode & S_IRGRP) ? "yes" : "no"),
+    ((var.st_mode & S_IWGRP) ? "yes" : "no"),
+    ((var.st_mode & S_IXGRP) ? "yes" : "no"));
+
+    printf("Others:\n\nRead: %s\nWrite: %s\nExec: %s\n\n", 
+    ((var.st_mode & S_IROTH) ? "yes" : "no"),
+    ((var.st_mode & S_IWOTH) ? "yes" : "no"),
+    ((var.st_mode & S_IXOTH) ? "yes" : "no"));
 }
 
 void createSymLink(char *d, int fd[]){
@@ -143,6 +196,7 @@ void createSymLink(char *d, int fd[]){
     char name[100];
     printf("Input name of the symbolic link:\n");
     fgets(name,50,stdin);
+    name[strlen(name)-1] = '\0';
 
     if(!symlink(d, name)){
         printf("Symbolic link created successfully\n");
@@ -161,7 +215,8 @@ bool checkCFile(char *d){
     return false;
 }
 
-void checkErrors(char *d){
+
+void checkErrors(char *d, int fd[]){
     
     char buffer[MAX_BUFFER_SIZE];
     char command[MAX_COMMAND_SIZE];
@@ -174,6 +229,8 @@ void checkErrors(char *d){
     }
     
     printf("\n");
+
+
     int ok = 1;
     int warnings = 0, errors = 0;
     while(fgets(buffer, MAX_BUFFER_SIZE, pipe)){
@@ -189,22 +246,46 @@ void checkErrors(char *d){
         }
         ok = 0;
     }
-    printf("warnings: %d and errors: %d\n",warnings, errors);
+
+    struct errAndWar Data;
+    Data.warnings = warnings;
+    Data.errors = errors;
+
+    close(fd[0]);
+    write(fd[1],&Data,sizeof(Data));
+    close(fd[1]);
+
     pclose(pipe);
 }
 
-int countLines(FILE *f){
-    int count=1;
-    if(!f){
-        perror("File not open");
+void countLines(FILE *f, char *d){
+
+    
+    char command[MAX_COMMAND_SIZE];
+    snprintf(command,MAX_COMMAND_SIZE,"wc -l %s",d);
+    
+    if((f=popen(command,"r"))==NULL){
+        perror("Couldn't open file\n");
         exit(0);
     }
-    char ch;
-    while((ch = fgetc(f))!=EOF){
-        if(ch == '\n')
-            count++;
-    }
-    return count;
+    int count;
+    fscanf(f,"%d",&count);
+    
+    printf("The file %s contains %d lines\n",d,count);
+    pclose(f);
+}
+
+int computeScore(struct errAndWar Data){
+    int score;
+    if(!Data.errors && !Data.warnings)
+        score = 10;
+        else if(Data.errors>0)
+            score = 1;
+            else if(!Data.errors && Data.warnings>10)
+                score = 2;
+                else if(!Data.errors && Data.warnings<=10)
+                    score = 2+8*(10-Data.warnings)/10;
+    return score;
 }
 
 
@@ -212,6 +293,7 @@ int countLines(FILE *f){
 
 
 int checkCFiles(DIR *dir);
+void createDirFile(char *d);
 
 void forDirectories(char *d, struct stat var){
 
@@ -224,76 +306,99 @@ void forDirectories(char *d, struct stat var){
         perror("Couldn't open\n");
         exit(0);
     }
+    bool check = false, k = true;
+    while(!check){
+        k = true;
+        printf("\nDirectory options:\n name (-n),\n size (-d),\n access rights (-a),\n total number of files with the .c extension (-c)\n\n");
+        fgets(s,50,stdin);
 
+        if(s[0]=='-'){
+            for(int i=1;i<strlen(s)-1;i++){
+                if(strchr("ndac",s[i])==NULL)
+                    k = false;
+            if(k)
+                check = true;
+            }
+        }
+        if(!check || s[0]!='-'){
+            printf("\nCommand not correct! Enter again:\n");
+        }
+    }
 
-    
     printf("\nDirectory options:\n name (-n),\n size (-d),\n access rights (-a),\n total number of files with the .c extension (-c)\n\n");
     fgets(s,50,stdin);
-    char *p;
-    pid_t pid2;
 
-    p = strtok(s," ");
+    pid_t pid2,pid;
 
-    while(p!=NULL){
-
-        int j = associateName(p);
+    for(int i=1;i<strlen(s)-1;i++){
     
-        pid_t pid;
         pid = fork();
         if(pid<0){
             fprintf(stderr, "Failed to fork a new process\n.");
             exit(0);
-        }
-        else if(pid == 0){
-            switch(j){
-                case 1:
-                    printf("Directory name: %s\n",d);
-                    break;
-                case 2:
-                    printf("The directory %s is %ld bytes long\n", d, (long)var.st_size);
-                    break;
-                case 4:
-                    checkRights(var);
-                    break;
-                case 6:
-                    printf("The directory contains %d files with the extension '.c'\n", checkCFiles(dir));
-                    break;
-                case 8:
-
-                    break;
-                default:
-                    perror("Operation not correct!\n");
+        } else if(pid==0){
+            switch(s[i]){
+            case 'n':
+                printf("Directory name: %s\n",d);
+                break;
+            case 'd':
+                printf("The directory %s is %ld bytes long\n", d, (long)var.st_size);
+                break;
+            case 'a':
+                checkRights(var);
+                break;
+            case 'c':
+                printf("The directory contains %d files with the extension '.c'\n", checkCFiles(dir));
+                break;
+            default:
+                perror("Operation not correct!\n");
             }
-            exit(0);
-        }
-        else{
-            wait(&status);
-            pid2 = fork();
-            if(pid2<0){
-                perror("Couldn't fork second process\n");
-                exit(0);
-            }
-            else if(pid2 == 0){
-                char fileName[50];
-                strcpy(fileName, d);
-                strcat(fileName,"_file.txt");
+             exit(0);
+        }else{
+            if(i==strlen(s)-2){
+                for (int i = 0; i < strlen(s)-1; i++) {
+                    pid_t child_pid = waitpid(-1, &status, 0);
 
-                FILE *f = fopen(fileName,"w");
-                
-                if(!f){
-                    perror("Couldn't create the file.\n");
+                    if (WIFEXITED(status)) {
+                        int exit_code = WEXITSTATUS(status);
+                        printf("\nThe process with PID %d has ended with the exit code %d\n", child_pid, exit_code);
+                    } else {
+                        printf("\nThe process with PID %d has ended abnormally\n", child_pid);
+                    }
+                }
+            }
+
+            if(i == strlen(s)-2){
+
+                pid2 = fork();
+                if(pid2<0){
+                    perror("Couldn't fork second process\n");
                     exit(0);
                 }
-                else{
-                    printf("File %s created successfully\n", fileName);
+                else if(pid2 == 0){
+                    createDirFile(d);
+                    exit(0);
+                }else{
+                    pid_t child_pid = waitpid(-1, &status, 0);
+
+                    if (WIFEXITED(status)) {
+                        int exit_code = WEXITSTATUS(status);
+                        printf("\nThe process with PID %d has ended with the exit code %d\n", child_pid, exit_code);
+                    } else {
+                        printf("\nThe process with PID %d has ended abnormally\n", child_pid);
+                    }
                 }
-
             }
-
         }
-        p=strtok(NULL," ");
     }
     closedir(dir);
+}  
+
+void createDirFile(char *d){
+    char command[MAX_COMMAND_SIZE];
+    snprintf(command,MAX_COMMAND_SIZE,"touch %s_file.txt",d);
+    system(command);
+
 }
 
 
@@ -314,62 +419,128 @@ int checkCFiles(DIR *dir){
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 void getTargetStatus(char *linkName, struct stat var);
+void symMenu(char s, struct stat var, char *link, int *x);
+void changeAcessRights(char *linkName);
 
 void forSymLink(char *link, struct stat var){
 
     char s[50];
     int status;
+    int x = 1;
 
-    printf("Options for symbolic link:\n name (-n),\n delete symbolic link (-l),\n size of symbolic link (-d),\n size of target file (-t),\n access rights (-a)\n\n");
-    fgets(s,50,stdin);
-    char *p;
+    bool check = false, k = true;
+    while(!check){
+        k = true;
+        printf("Options for symbolic link:\n name (-n),\n delete symbolic link (-l),\n size of symbolic link (-d),\n size of target file (-t),\n access rights (-a)\n\n");
+        fgets(s,50,stdin);
 
-    p = strtok(s," ");
-    int ok=1;
-    while(p!=NULL && ok==1){
+        if(s[0]=='-'){
+            for(int i=1;i<strlen(s)-1;i++){
+                if(strchr("nldta",s[i])==NULL)
+                    k = false;
+            if(k)
+                check = true;
+            }
+        }
+        if(!check || s[0]!='-'){
+            printf("\nCommand not correct! Enter again:\n");
+        }
+    }
 
-        int j = associateName(p);
     
-        pid_t pid;
+    pid_t pid, pid2;
+    printf("\n");
+
+    for(int i=1;i<strlen(s)-1 && x == 1;i++){
+
         pid = fork();
         if(pid<0){
             fprintf(stderr, "Failed to fork a new process\n.");
             exit(0);
-        }
-        else if(pid == 0){
-            switch(j){
-                case 1:
-                    printf("Symbolic link name: %s\n",link);
-                    break;
-                case 2:
-                    printf("The symbolic link %s is %ld bytes long\n", link, (long)var.st_size);
-                    break;
-                case 4:
-                    checkRights(var);
-                    break;
-                case 7:
-                    if(unlink(link) == -1){
-                        perror("Couldn't unlink\n");
-                        exit(0);
+        } else if(pid==0 && x == 1){
+            symMenu(s[i], var, link, &x);
+        }else{
+
+            if(i==strlen(s)-2){
+                for (int i = 1; i < strlen(s)-1; i++) {
+                    pid_t child_pid = waitpid(-1, &status, 0);
+
+                    if (WIFEXITED(status)) {
+                        int exit_code = WEXITSTATUS(status);
+                        printf("\nThe process with PID %d has ended with the exit code %d\n", child_pid, exit_code);
+                    } else {
+                        printf("\nThe process with PID %d has ended abnormally\n", child_pid);
                     }
-                    else{
-                        printf("Unlinked successfully.\n");
-                        ok = 0;
-                        exit(0);
-                    }
-                    break;
-                case 8:
-                    getTargetStatus(link,var);
-                    break;
-                default:
-                    perror("Operation not correct!\n");
+                }
             }
-            exit(0);
-        } else{
-            wait(&status);
+
+            if(x==-1)
+                break;
+                
+            if(i == strlen(s)-2){
+                    
+                pid2 = fork();
+                if(pid2<0){
+                    perror("Couldn't fork second process\n");
+                    exit(0);
+                }
+                else if(pid2 == 0){
+                    changeAcessRights(link);
+                }
+                else{
+                    pid_t child_pid = waitpid(-1, &status, 0);
+
+                    if (WIFEXITED(status)) {
+                        int exit_code = WEXITSTATUS(status);
+                        printf("\nThe process with PID %d has ended with the exit code %d\n", child_pid, exit_code);
+                    } else {
+                        printf("\nThe process with PID %d has ended abnormally\n", child_pid);
+                    }
+                }
+                    
+            }
+            pid_t child_pid = waitpid(-1, &status, 0);
+            if (WIFEXITED(status)) {
+                int exit_code = WEXITSTATUS(status);
+                printf("\nThe process with PID %d has ended with the exit code %d\n", child_pid, exit_code);
+            } else {
+                printf("\nThe process with PID %d has ended abnormally\n", child_pid);
+                
+            }
         }
-        p=strtok(NULL," ");
     }
+}
+
+
+void symMenu(char s, struct stat var, char *link, int *x){
+    switch(s){
+        case 'n':
+            printf("Symbolic link name: %s\n",link);
+            break;
+        case 'd':
+            printf("The symbolic link %s is %ld bytes long\n", link, (long)var.st_size);
+            break;
+        case 'a':
+            checkRights(var);
+            break;
+        case 'l':
+            if(unlink(link) == -1){
+                perror("Couldn't unlink\n");
+                exit(0);
+            }
+            else{
+                printf("Unlinked successfully.\n");
+                *x = -1;
+                return;
+            }
+            break;
+        case 't':
+            getTargetStatus(link,var);
+            break;
+        default:
+        perror("Operation not correct!\n");
+    }
+    //*x = 1;
 }
 
 void getTargetStatus(char *linkName, struct stat var){
@@ -381,6 +552,23 @@ void getTargetStatus(char *linkName, struct stat var){
     printf("Size of %s's target is: %ld bytes\n", linkName, target.st_size);
 }
 
+void changeAcessRights(char *linkName){
+
+    char command[MAX_COMMAND_SIZE];
+    sprintf(command,"./scriptSymLnk.sh %s", linkName);
+
+    FILE* pipe= popen(command,"r");
+    if(!pipe){
+        perror("Couldn't open the pipe for script.sh");
+        exit(0);
+    }
+    else{
+        printf("Rights changed successfully\n");
+    }
+}
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 int main(int argc, char** argv){
 
@@ -397,15 +585,15 @@ int main(int argc, char** argv){
         }
         
         if(S_ISREG(var.st_mode)){
-            printf("For the regular file: %s\n", argv[i]);
+            printf("\nFor the regular file: %s\n", argv[i]);
             forFile(argv[i], var);
         }
         if(S_ISDIR(var.st_mode)){
-            printf("For the directory: %s\n", argv[i]);
+            printf("\nFor the directory: %s\n", argv[i]);
             forDirectories(argv[i], var);
         }
         if(S_ISLNK(var.st_mode)){
-            printf("For the symbolic link: %s\n", argv[i]);
+            printf("\nFor the symbolic link: %s\n", argv[i]);
             forSymLink(argv[i],var);
         }
     }

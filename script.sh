@@ -2,7 +2,7 @@
 
 filename=$1
 
-gcc -Wall -Wextra -Wpedantic -Werror $filename 2> error.log
+gcc -Wall  $filename 2> error.log
 
 num_warnings=$(grep -c warning error.log)
 num_errors=$(grep -c error error.log)

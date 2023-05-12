@@ -1,4 +1,40 @@
-test.c:1:10: fatal error: std.h: No such file or directory
-    1 | #include <std.h>
-      |          ^~~~~~~
-compilation terminated.
+test.c: In function ‘main’:
+test.c:4:33: warning: unused variable ‘j’ [-Wunused-variable]
+    4 |     int x,y,z,a,b,c,d,e,f,g,h,i,j;
+      |                                 ^
+test.c:4:31: warning: unused variable ‘i’ [-Wunused-variable]
+    4 |     int x,y,z,a,b,c,d,e,f,g,h,i,j;
+      |                               ^
+test.c:4:29: warning: unused variable ‘h’ [-Wunused-variable]
+    4 |     int x,y,z,a,b,c,d,e,f,g,h,i,j;
+      |                             ^
+test.c:4:27: warning: unused variable ‘g’ [-Wunused-variable]
+    4 |     int x,y,z,a,b,c,d,e,f,g,h,i,j;
+      |                           ^
+test.c:4:25: warning: unused variable ‘f’ [-Wunused-variable]
+    4 |     int x,y,z,a,b,c,d,e,f,g,h,i,j;
+      |                         ^
+test.c:4:23: warning: unused variable ‘e’ [-Wunused-variable]
+    4 |     int x,y,z,a,b,c,d,e,f,g,h,i,j;
+      |                       ^
+test.c:4:21: warning: unused variable ‘d’ [-Wunused-variable]
+    4 |     int x,y,z,a,b,c,d,e,f,g,h,i,j;
+      |                     ^
+test.c:4:19: warning: unused variable ‘c’ [-Wunused-variable]
+    4 |     int x,y,z,a,b,c,d,e,f,g,h,i,j;
+      |                   ^
+test.c:4:17: warning: unused variable ‘b’ [-Wunused-variable]
+    4 |     int x,y,z,a,b,c,d,e,f,g,h,i,j;
+      |                 ^
+test.c:4:15: warning: unused variable ‘a’ [-Wunused-variable]
+    4 |     int x,y,z,a,b,c,d,e,f,g,h,i,j;
+      |               ^
+test.c:4:13: warning: unused variable ‘z’ [-Wunused-variable]
+    4 |     int x,y,z,a,b,c,d,e,f,g,h,i,j;
+      |             ^
+test.c:4:11: warning: unused variable ‘y’ [-Wunused-variable]
+    4 |     int x,y,z,a,b,c,d,e,f,g,h,i,j;
+      |           ^
+test.c:4:9: warning: unused variable ‘x’ [-Wunused-variable]
+    4 |     int x,y,z,a,b,c,d,e,f,g,h,i,j;
+      |         ^
